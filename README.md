@@ -1,17 +1,17 @@
 # 🎬 Netflix Data Analytics Platform
 
-> **Un análisis integral del catálogo de Netflix utilizando la arquitectura de datos Medallion**
+> **Un análisis integral del catálogo de Netflix utilizando la arquitectura de datos Medallon**
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![Data Engineering](https://img.shields.io/badge/Data-Engineering-red.svg)]()
 [![Analytics](https://img.shields.io/badge/Analytics-Insights-green.svg)]()
-[![Medallion Architecture](https://img.shields.io/badge/Architecture-Medallion-yellow.svg)]()
+[![Medallon Architecture](https://img.shields.io/badge/Architecture-Medallon-yellow.svg)]()
 
 ## 🌟 Descripción del Proyecto
 
-Este proyecto implementa un pipeline de análisis de datos completo del catálogo de Netflix, aplicando la **arquitectura Medallion** (Bronze, Silver, Gold) para el procesamiento y transformación de datos. El objetivo es extraer insights valiosos sobre el contenido, tendencias y patrones de la plataforma de streaming más popular del mundo.
+Este proyecto implementa un pipeline de análisis de datos completo del catálogo de Netflix, aplicando la **arquitectura Medallon** (Bronze, Silver, Gold) para el procesamiento y transformación de datos. El objetivo es extraer insights valiosos sobre el contenido, tendencias y patrones de la plataforma de streaming más popular del mundo.
 
-## 🏗️ Arquitectura Medallion
+## 🏗️ Arquitectura Medallon
 
 ### 🥉 **Capa Bronze (Datos Crudos)**
 - Ingesta de datos en su formato original
@@ -77,7 +77,7 @@ Netflix/
 - **📊 Matplotlib/Seaborn**: Visualización de datos
 - **🔢 NumPy**: Computación numérica
 - **📈 Plotly**: Visualizaciones interactivas
-- **🏗️ Medallion Architecture**: Patrón de arquitectura de datos
+- **🏗️ Medallon Architecture**: Patrón de arquitectura de datos
 
 ## 📋 Prerrequisitos
 
