@@ -1,0 +1,188 @@
+%sql
+CREATE OR REPLACE TABLE workspace.default.silver_titles AS
+SELECT 
+  id,
+  TRIM(title) as title,
+  UPPER(type) as type,
+  TRIM(description) as description,
+  
+  TRY_CAST(release_year AS INT) as release_year,
+  
+  CASE 
+    WHEN TRY_CAST(release_year AS INT) < 1980 THEN 'Classic (Pre-1980)'
+    WHEN TRY_CAST(release_year AS INT) BETWEEN 1980 AND 1999 THEN 'Retro (1980-1999)'
+    WHEN TRY_CAST(release_year AS INT) BETWEEN 2000 AND 2009 THEN 'Modern (2000-2009)'
+    WHEN TRY_CAST(release_year AS INT) BETWEEN 2010 AND 2019 THEN 'Recent (2010-2019)'
+    WHEN TRY_CAST(release_year AS INT) >= 2020 THEN 'Contemporary (2020+)'
+    ELSE 'Unknown'
+  END as era_category,
+  
+  FLOOR(TRY_CAST(release_year AS INT) / 10) * 10 as decade,
+  
+  CASE 
+    WHEN TRIM(age_certification) = '' THEN 'Not Rated'
+    WHEN age_certification IS NULL THEN 'Not Rated'
+    ELSE TRIM(age_certification)
+  END as age_certification,
+  
+  TRY_CAST(runtime AS INT) as runtime_minutes,
+  
+  CASE 
+    WHEN TRY_CAST(runtime AS INT) < 30 THEN 'Short (<30 min)'
+    WHEN TRY_CAST(runtime AS INT) BETWEEN 30 AND 60 THEN 'Medium (30-60 min)'
+    WHEN TRY_CAST(runtime AS INT) BETWEEN 61 AND 120 THEN 'Standard (1-2 hrs)'
+    WHEN TRY_CAST(runtime AS INT) > 120 THEN 'Long (>2 hrs)'
+    ELSE 'Unknown'
+  END as duration_category,
+  
+  -- Limpiamos los géneros
+  REGEXP_REPLACE(REGEXP_REPLACE(genres, "[\\[\\]']", ""), '"', '') as genres_clean,
+  
+  -- Limpiamos los países
+  REGEXP_REPLACE(REGEXP_REPLACE(production_countries, "[\\[\\]']", ""), '"', '') as countries_clean,
+  
+  -- Temporadas
+  TRY_CAST(seasons AS DOUBLE) as seasons,
+  
+  -- IMDB data con TRY_CAST
+  TRIM(imdb_id) as imdb_id,
+  TRY_CAST(imdb_score AS DOUBLE) as imdb_score,
+  TRY_CAST(REGEXP_REPLACE(imdb_votes, '\\.0$', '') AS INT) as imdb_votes,
+  
+  -- Clasificar calidad según IMDB
+  CASE 
+    WHEN TRY_CAST(imdb_score AS DOUBLE) >= 8.0 THEN 'Excellent (8.0+)'
+    WHEN TRY_CAST(imdb_score AS DOUBLE) >= 7.0 THEN 'Good (7.0-7.9)'
+    WHEN TRY_CAST(imdb_score AS DOUBLE) >= 6.0 THEN 'Average (6.0-6.9)'
+    WHEN TRY_CAST(imdb_score AS DOUBLE) >= 5.0 THEN 'Below Average (5.0-5.9)'
+    WHEN TRY_CAST(imdb_score AS DOUBLE) < 5.0 THEN 'Poor (<5.0)'
+    ELSE 'Not Rated'
+  END as quality_tier,
+  
+  -- TMDB data
+  TRY_CAST(tmdb_popularity AS DOUBLE) as tmdb_popularity,
+  TRY_CAST(tmdb_score AS DOUBLE) as tmdb_score,
+  
+  -- Timestamp de procesamiento
+  CURRENT_TIMESTAMP() as processed_at
+FROM workspace.default.titles
+WHERE id IS NOT NULL;
+
+---
+
+%sql
+-- Verificar que la tabla se creó
+SELECT COUNT(*) as total_filas FROM workspace.default.silver_titles;
+
+-- Ver primeras 10 filas
+SELECT * FROM workspace.default.silver_titles LIMIT 10;
+
+---
+
+%sql
+CREATE OR REPLACE TABLE workspace.default.silver_netflix_titles AS
+SELECT 
+  TRIM(show_id) as show_id,
+  UPPER(TRIM(type)) as type,
+  TRIM(title) as title,
+  
+  CASE 
+    WHEN TRIM(director) = '' THEN 'Unknown Director'
+    WHEN director IS NULL THEN 'Unknown Director'
+    ELSE TRIM(director)
+  END as director,
+  
+  CASE 
+    WHEN TRIM(cast) = '' THEN 'No Cast Info'
+    WHEN cast IS NULL THEN 'No Cast Info'
+    ELSE TRIM(cast)
+  END as cast_list,
+  
+  CASE 
+    WHEN TRIM(country) = '' THEN 'Unknown Country'
+    WHEN country IS NULL THEN 'Unknown Country'
+    ELSE TRIM(country)
+  END as country,
+  
+  -- limpiar fechas inválidas
+  TRY_TO_DATE(date_added, 'MMMM dd, yyyy') as date_added,
+  YEAR(TRY_TO_DATE(date_added, 'MMMM dd, yyyy')) as year_added,
+  MONTH(TRY_TO_DATE(date_added, 'MMMM dd, yyyy')) as month_added,
+  
+  TRY_CAST(release_year AS INT) as release_year,
+  
+  CASE 
+    WHEN TRIM(rating) = '' THEN 'Not Rated'
+    WHEN rating IS NULL THEN 'Not Rated'
+    ELSE TRIM(rating)
+  END as rating,
+  
+  TRIM(duration) as duration,
+  TRIM(listed_in) as genres,
+  TRIM(description) as description,
+  CURRENT_TIMESTAMP() as processed_at
+FROM workspace.default.netflix_titles
+WHERE show_id IS NOT NULL;
+
+---
+
+%sql
+-- Crear tabla silver de credits
+CREATE OR REPLACE TABLE workspace.default.silver_credits AS
+SELECT 
+  CAST(person_id AS INT) as person_id,
+  TRIM(id) as content_id,
+  TRIM(name) as person_name,
+  
+  -- Limpiar character
+  CASE 
+    WHEN TRIM(character) = '' THEN 'N/A'
+    WHEN character IS NULL THEN 'N/A'
+    ELSE TRIM(character)
+  END as character_name,
+  
+  UPPER(TRIM(role)) as role,
+  CURRENT_TIMESTAMP() as processed_at
+FROM workspace.default.credits
+WHERE person_id IS NOT NULL 
+  AND id IS NOT NULL
+  AND name IS NOT NULL;
+
+---
+
+%sql
+-- Verificacion las 3 tablas silver
+SELECT 'silver_titles' as tabla, COUNT(*) as filas FROM workspace.default.silver_titles
+UNION ALL
+SELECT 'silver_credits', COUNT(*) FROM workspace.default.silver_credits
+UNION ALL
+SELECT 'silver_netflix_titles', COUNT(*) FROM workspace.default.silver_netflix_titles
+ORDER BY tabla;
+
+---
+
+%sql
+-- Ver muestra de silver_titles
+SELECT id, title, type, release_year, era_category, quality_tier 
+FROM workspace.default.silver_titles 
+LIMIT 5;
+
+-- Ver muestra de silver_credits
+SELECT content_id, person_name, role, character_name 
+FROM workspace.default.silver_credits 
+LIMIT 5;
+
+-- Ver muestra de silver_netflix_titles
+SELECT show_id, title, type, date_added, year_added, country, rating 
+FROM workspace.default.silver_netflix_titles 
+LIMIT 5;
+
+---
+
+%sql
+SELECT 'silver_titles' as tabla, COUNT(*) as filas FROM workspace.default.silver_titles
+UNION ALL
+SELECT 'silver_credits', COUNT(*) FROM workspace.default.silver_credits
+UNION ALL
+SELECT 'silver_netflix_titles', COUNT(*) FROM workspace.default.silver_netflix_titles
+ORDER BY tabla;

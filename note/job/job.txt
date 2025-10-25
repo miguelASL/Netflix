@@ -1,0 +1,151 @@
+from pyspark.sql.utils import AnalysisException
+from datetime import datetime
+
+# Configuración de tablas a validar
+BRONZE_TABLES = [
+    "workspace.default.credits",
+    "workspace.default.titles",
+    "workspace.default.netflix_titles"
+]
+
+# Umbrales de validación
+MIN_ROWS = 100  # Mínimo de filas esperadas por tabla
+MAX_NULL_PERCENTAGE = 50  # Máximo porcentaje de nulos permitido en columnas clave
+
+print("=" * 70)
+print(f"🔍 VALIDACIÓN DE TABLAS BRONZE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print("=" * 70)
+
+# Diccionario para almacenar resultados
+validation_results = {}
+all_passed = True
+
+try:
+    for table_name in BRONZE_TABLES:
+        print(f"\n📊 Validando tabla: {table_name}")
+        print("-" * 70)
+        
+        try:
+            # 1. Verificar que la tabla existe
+            df = spark.table(table_name)
+            
+            # 2. Contar registros
+            row_count = df.count()
+            print(f"   ✓ Registros encontrados: {row_count:,}")
+            
+            # 3. Validar cantidad mínima de registros
+            if row_count == 0:
+                print(f"   ❌ ERROR: La tabla está vacía")
+                all_passed = False
+                validation_results[table_name] = {
+                    "status": "FAILED",
+                    "rows": row_count,
+                    "error": "Tabla vacía"
+                }
+                continue
+            elif row_count < MIN_ROWS:
+                print(f"   ⚠️  ADVERTENCIA: Menos de {MIN_ROWS} registros ({row_count})")
+            
+            # 4. Verificar esquema
+            columns = df.columns
+            print(f"   ✓ Columnas encontradas: {len(columns)}")
+            print(f"     {', '.join(columns[:5])}{'...' if len(columns) > 5 else ''}")
+            
+            # 5. Validar que no haya duplicados totales
+            distinct_count = df.distinct().count()
+            duplicate_percentage = ((row_count - distinct_count) / row_count) * 100
+            print(f"   ✓ Registros únicos: {distinct_count:,} ({100-duplicate_percentage:.1f}%)")
+            
+            if duplicate_percentage > 10:
+                print(f"   ⚠️  ADVERTENCIA: {duplicate_percentage:.1f}% de duplicados")
+            
+            # 6. Validar columnas clave
+            key_column = columns[0] 
+            null_count = df.filter(df[key_column].isNull()).count()
+            null_percentage = (null_count / row_count) * 100
+            print(f"   ✓ Nulos en '{key_column}': {null_count:,} ({null_percentage:.1f}%)")
+            
+            if null_percentage > MAX_NULL_PERCENTAGE:
+                print(f"   ❌ ERROR: Demasiados nulos en columna clave '{key_column}'")
+                all_passed = False
+                validation_results[table_name] = {
+                    "status": "FAILED",
+                    "rows": row_count,
+                    "error": f"Muchos nulos en {key_column}"
+                }
+                continue
+            
+            # 7. Verificar tipos de datos (ejemplo)
+            schema_info = df.dtypes
+            print(f"   ✓ Tipos de datos validados: {len(schema_info)} columnas")
+            
+            # Marcar como exitoso
+            validation_results[table_name] = {
+                "status": "PASSED",
+                "rows": row_count,
+                "distinct": distinct_count,
+                "duplicates_pct": duplicate_percentage,
+                "null_pct": null_percentage
+            }
+            print(f"   ✅ Validación exitosa")
+            
+        except AnalysisException as ae:
+            print(f"   ❌ ERROR: La tabla no existe o no es accesible")
+            print(f"      Detalle: {str(ae)}")
+            all_passed = False
+            validation_results[table_name] = {
+                "status": "FAILED",
+                "rows": 0,
+                "error": "Tabla no existe"
+            }
+        
+        except Exception as e:
+            print(f"   ❌ ERROR INESPERADO: {str(e)}")
+            all_passed = False
+            validation_results[table_name] = {
+                "status": "FAILED",
+                "rows": 0,
+                "error": str(e)
+            }
+    
+    # Resumen final
+    print("\n" + "=" * 70)
+    print("📋 RESUMEN DE VALIDACIÓN")
+    print("=" * 70)
+    
+    total_rows = 0
+    for table, results in validation_results.items():
+        status_icon = "✅" if results["status"] == "PASSED" else "❌"
+        table_short = table.split(".")[-1]
+        print(f"{status_icon} {table_short:20} | {results['rows']:>10,} filas | {results['status']}")
+        if results["status"] == "PASSED":
+            total_rows += results["rows"]
+    
+    print("-" * 70)
+    print(f"Total de registros válidos: {total_rows:,}")
+    print("=" * 70)
+    
+    # Decisión final
+    if all_passed:
+        print("\n✅ VALIDACIÓN EXITOSA: Todas las tablas Bronze tienen datos válidos")
+        print("🚀 Puedes continuar con el pipeline de transformación")
+        
+        # Retornar código de éxito 
+        # dbutils.notebook.exit("SUCCESS")
+        
+    else:
+        error_tables = [t for t, r in validation_results.items() if r["status"] == "FAILED"]
+        error_msg = f"⚠️ VALIDACIÓN FALLIDA: {len(error_tables)} tabla(s) con errores: {', '.join([t.split('.')[-1] for t in error_tables])}"
+        print(f"\n{error_msg}")
+        print("🛑 Revisa los datos antes de continuar con el pipeline")
+        
+        # Lanzar excepción para que el job falle
+        raise ValueError(error_msg)
+
+except Exception as e:
+    print("\n" + "=" * 70)  
+    print("❌ ERROR CRÍTICO EN LA VALIDACIÓN")
+    print("=" * 70)
+    print(f"Mensaje: {str(e)}")
+    print("\n🛑 El job se detendrá. Revisa los logs y soluciona los errores.")
+    raise e

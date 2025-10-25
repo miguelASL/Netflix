@@ -1,0 +1,18 @@
+try:
+    credits_count = spark.table("workspace.default.credits").count()
+    titles_count = spark.table("workspace.default.titles").count()
+    netflix_titles_count = spark.table("workspace.default.netflix_titles").count()
+
+    print(f"Cantidad de registros en Bronze:")
+    print(f"- credits: {credits_count}")
+    print(f"- titles: {titles_count}")
+    print(f"- netflix_titles: {netflix_titles_count}")
+
+    if credits_count == 0 or titles_count == 0 or netflix_titles_count == 0:
+        raise ValueError("⚠️ Alguna tabla Bronze está vacía. Revisa los datos antes de continuar.")
+    else:
+        print("✅ Todas las tablas Bronze tienen datos. Puedes continuar con el pipeline.")
+
+except Exception as e:
+    print(f"❌ Error al acceder a las tablas Bronze: {e}")
+    raise e

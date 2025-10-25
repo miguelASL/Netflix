@@ -1,0 +1,207 @@
+%sql
+-- Fact table principal con métricas de contenido
+CREATE OR REPLACE TABLE workspace.default.gold_fact_content AS
+SELECT 
+  t.id as content_id,
+  t.title,
+  t.type,
+  t.release_year,
+  t.decade,
+  t.era_category,
+  t.age_certification,
+  t.runtime_minutes,
+  t.duration_category,
+  t.genres_clean,
+  t.countries_clean,
+  t.seasons,
+  t.imdb_score,
+  t.imdb_votes,
+  t.quality_tier,
+  t.tmdb_popularity,
+  t.tmdb_score,
+  
+  -- Clasificar popularidad por votos
+  CASE 
+    WHEN t.imdb_votes >= 100000 THEN 'Very High'
+    WHEN t.imdb_votes >= 50000 THEN 'High'
+    WHEN t.imdb_votes >= 10000 THEN 'Medium'
+    WHEN t.imdb_votes >= 1000 THEN 'Low'
+    ELSE 'Very Low'
+  END as popularity_level,
+  
+  -- Contar actores por contenido
+  (SELECT COUNT(DISTINCT person_name) 
+   FROM workspace.default.silver_credits c 
+   WHERE c.content_id = t.id AND c.role = 'ACTOR') as total_actors,
+   
+  -- Contar directores
+  (SELECT COUNT(DISTINCT person_name) 
+   FROM workspace.default.silver_credits c 
+   WHERE c.content_id = t.id AND c.role = 'DIRECTOR') as total_directors,
+   
+  CURRENT_TIMESTAMP() as created_at
+FROM workspace.default.silver_titles t;
+
+---
+
+%sql
+-- Dimensión de actores con métricas agregadas
+CREATE OR REPLACE TABLE workspace.default.gold_dim_actors AS
+SELECT 
+  c.person_name as actor_name,
+  COUNT(DISTINCT c.content_id) as total_films,
+  COUNT(DISTINCT CASE WHEN t.type = 'MOVIE' THEN c.content_id END) as total_movies,
+  COUNT(DISTINCT CASE WHEN t.type = 'SHOW' THEN c.content_id END) as total_shows,
+  AVG(t.imdb_score) as avg_imdb_score,
+  SUM(t.imdb_votes) as total_votes,
+  MAX(t.imdb_score) as best_score,
+  MIN(t.release_year) as first_appearance_year,
+  MAX(t.release_year) as last_appearance_year,
+  CURRENT_TIMESTAMP() as created_at
+FROM workspace.default.silver_credits c
+JOIN workspace.default.silver_titles t ON c.content_id = t.id
+WHERE c.role = 'ACTOR'
+GROUP BY c.person_name
+HAVING COUNT(DISTINCT c.content_id) >= 1;
+
+---
+
+%sql
+-- Dimensión de géneros con métricas
+CREATE OR REPLACE TABLE workspace.default.gold_dim_genres AS
+WITH genres_exploded AS (
+  SELECT 
+    id,
+    type,
+    release_year,
+    imdb_score,
+    imdb_votes,
+    TRIM(genre_value) as genre
+  FROM workspace.default.silver_titles
+  LATERAL VIEW EXPLODE(SPLIT(genres_clean, ',')) AS genre_value
+  WHERE genres_clean IS NOT NULL
+)
+SELECT 
+  genre,
+  COUNT(DISTINCT id) as total_content,
+  COUNT(DISTINCT CASE WHEN type = 'MOVIE' THEN id END) as total_movies,
+  COUNT(DISTINCT CASE WHEN type = 'SHOW' THEN id END) as total_shows,
+  AVG(imdb_score) as avg_imdb_score,
+  AVG(imdb_votes) as avg_votes,
+  MIN(release_year) as earliest_year,
+  MAX(release_year) as latest_year,
+  CURRENT_TIMESTAMP() as created_at
+FROM genres_exploded
+GROUP BY genre
+ORDER BY total_content DESC;
+
+---
+
+%sql
+-- Dimensión de géneros con métricas
+CREATE OR REPLACE TABLE workspace.default.gold_dim_genres AS
+WITH genres_exploded AS (
+  SELECT 
+    id,
+    type,
+    release_year,
+    imdb_score,
+    imdb_votes,
+    TRIM(genre_value) as genre
+  FROM workspace.default.silver_titles
+  LATERAL VIEW EXPLODE(SPLIT(genres_clean, ',')) AS genre_value
+  WHERE genres_clean IS NOT NULL
+)
+SELECT 
+  genre,
+  COUNT(DISTINCT id) as total_content,
+  COUNT(DISTINCT CASE WHEN type = 'MOVIE' THEN id END) as total_movies,
+  COUNT(DISTINCT CASE WHEN type = 'SHOW' THEN id END) as total_shows,
+  AVG(imdb_score) as avg_imdb_score,
+  AVG(imdb_votes) as avg_votes,
+  MIN(release_year) as earliest_year,
+  MAX(release_year) as latest_year,
+  CURRENT_TIMESTAMP() as created_at
+FROM genres_exploded
+GROUP BY genre
+ORDER BY total_content DESC;
+
+---
+
+%sql
+-- Dimensión de países productores
+CREATE OR REPLACE TABLE workspace.default.gold_dim_countries AS
+WITH countries_exploded AS (
+  SELECT 
+    id,
+    type,
+    release_year,
+    imdb_score,
+    TRIM(country_value) as country
+  FROM workspace.default.silver_titles
+  LATERAL VIEW EXPLODE(SPLIT(countries_clean, ',')) AS country_value
+  WHERE countries_clean IS NOT NULL AND countries_clean != ''
+)
+SELECT 
+  country,
+  COUNT(DISTINCT id) as total_content,
+  COUNT(DISTINCT CASE WHEN type = 'MOVIE' THEN id END) as total_movies,
+  COUNT(DISTINCT CASE WHEN type = 'SHOW' THEN id END) as total_shows,
+  AVG(imdb_score) as avg_imdb_score,
+  MIN(release_year) as earliest_year,
+  MAX(release_year) as latest_year,
+  CURRENT_TIMESTAMP() as created_at
+FROM countries_exploded
+GROUP BY country
+ORDER BY total_content DESC;
+
+---
+
+%sql
+-- Tabla agregada por año para análisis temporal
+CREATE OR REPLACE TABLE workspace.default.gold_agg_timeline AS
+SELECT 
+  release_year,
+  decade,
+  era_category,
+  type,
+  COUNT(*) as total_content,
+  AVG(imdb_score) as avg_score,
+  AVG(runtime_minutes) as avg_runtime,
+  SUM(imdb_votes) as total_votes,
+  COUNT(DISTINCT CASE WHEN quality_tier = 'Excellent (8.0+)' THEN id END) as excellent_content,
+  CURRENT_TIMESTAMP() as created_at
+FROM workspace.default.silver_titles
+WHERE release_year IS NOT NULL
+GROUP BY release_year, decade, era_category, type
+ORDER BY release_year DESC;
+
+---
+
+%sql
+-- Verificar tablas Gold
+SELECT 'gold_fact_content' as tabla, COUNT(*) as filas FROM workspace.default.gold_fact_content
+UNION ALL
+SELECT 'gold_dim_actors', COUNT(*) FROM workspace.default.gold_dim_actors
+UNION ALL
+SELECT 'gold_dim_genres', COUNT(*) FROM workspace.default.gold_dim_genres
+UNION ALL
+SELECT 'gold_dim_countries', COUNT(*) FROM workspace.default.gold_dim_countries
+UNION ALL
+SELECT 'gold_agg_timeline', COUNT(*) FROM workspace.default.gold_agg_timeline
+ORDER BY tabla;
+
+---
+
+%sql
+-- Optimizar gold_fact_content (ordenar por las columnas más consultadas)
+OPTIMIZE workspace.default.gold_fact_content
+ZORDER BY (type, release_year, quality_tier);
+
+-- Optimizar gold_dim_actors
+OPTIMIZE workspace.default.gold_dim_actors
+ZORDER BY (total_films, avg_imdb_score);
+
+-- Optimizar gold_agg_timeline
+OPTIMIZE workspace.default.gold_agg_timeline
+ZORDER BY (release_year, type);
